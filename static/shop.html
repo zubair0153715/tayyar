@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shop Workspace — TAYYAR</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:1rem}
+.card{border:1px solid #ddd;border-radius:10px;padding:1rem;margin:1rem 0}
+label{display:block;margin:.5rem 0 .2rem;font-weight:600}
+input,select{width:100%;padding:.5rem;border:1px solid #ccc;border-radius:6px;box-sizing:border-box}
+button{background:#0b6e4f;color:#fff;border:0;padding:.5rem 1rem;border-radius:6px;cursor:pointer;margin:.4rem .2rem 0 0}
+button.secondary{background:#eee;color:#222}
+.warn{background:#fff3cd;border:1px solid #e6c200;border-radius:8px;padding:.8rem}
+table{width:100%;border-collapse:collapse}td,th{padding:.4rem;border-bottom:1px solid #eee;text-align:left}
+.badge{display:inline-block;padding:.15rem .6rem;border-radius:1rem;font-size:.8rem;background:#e3f2fd}
+.done{color:#2e7d32}.todo{color:#888}
+a{color:#0b6e4f}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+@media(max-width:640px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<p><a href="/static/index.html">← Back to board</a></p>
+<h1 id="shopName">Shop workspace</h1>
+<div id="shopMeta"></div>
+<div class="warn"><strong>Demo only:</strong> upload sample files, not real CNICs. Raast ID is a DEMO placeholder. Tax summary is an estimate — accountant must verify; not an FBR filing.</div>
+
+<div class="card">
+<h2>Cashless Ready checklist</h2>
+<ul id="checklist"></ul>
+<h3>Move pipeline stage</h3>
+<div id="stageBtns"></div>
+<p id="stageMsg"></p>
+</div>
+
+<div class="grid">
+<div class="card">
+<h2>Documents</h2>
+<form id="docForm" enctype="multipart/form-data">
+<label>Document type
+<select name="doc_type"><option value="cnic">CNIC (demo copy)</option><option value="ntn">NTN certificate</option><option value="utility_bill">Utility bill photo</option></select></label>
+<label>File <input type="file" name="file" required></label>
+<button type="submit">Upload document</button>
+</form>
+<p id="docMsg"></p>
+<ul id="docList"></ul>
+</div>
+
+<div class="card">
+<h2>Raast Merchant QR (DEMO)</h2>
+<p>Merchant ID: <strong id="raastId">—</strong> <span class="badge">DEMO</span></p>
+<div id="qrBox"><p>No QR issued yet.</p></div>
+<button id="qrBtn">Issue DEMO Raast QR</button>
+<p><a id="catalogLink" href="#" target="_blank">View public catalog page →</a></p>
+</div>
+</div>
+
+<div class="card">
+<h2>Digital catalog</h2>
+<form id="catForm">
+<label>Item name <input name="name" required></label>
+<label>Price (PKR) <input name="price" type="number" min="0" step="1" required></label>
+<label>Category <input name="category" value="General"></label>
+<button type="submit">Add item</button>
+</form>
+<table><thead><tr><th>Item</th><th>Category</th><th>Price</th></tr></thead><tbody id="catBody"></tbody></table>
+</div>
+
+<div class="card">
+<h2>AI Tax Assistant</h2>
+<p>Paste daily transactions (auto-categorized by keyword rules) or upload a CSV with headers <code>date,description,amount</code>. Categories are editable after import.</p>
+<form id="txForm">
+<label>Date <input name="date" type="date" required></label>
+<label>Description <input name="description" required placeholder="e.g. Cash sale — customer"></label>
+<label>Amount (PKR) <input name="amount" type="number" min="0.01" step="0.01" required></label>
+<button type="submit">Add transaction</button>
+</form>
+<form id="csvForm" enctype="multipart/form-data">
+<label>CSV upload <input type="file" name="file" accept=".csv" required></label>
+<button type="submit">Upload CSV</button>
+</form>
+<p id="txMsg"></p>
+<label>Month <input type="month" id="monthInput" value="2026-11"></label>
+<label>Illustrative tax rate % <input type="number" id="rateInput" value="5" min="0" max="50" step="0.5"></label>
+<button onclick="loadSummary()">Compute monthly summary</button>
+<button class="secondary" onclick="downloadCSV()">Export summary CSV</button>
+<div id="summary"></div>
+<h3>Transactions</h3>
+<table><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Category</th></tr></thead><tbody id="txBody"></tbody></table>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const shopId = params.get('id');
+if (!shopId) { document.body.innerHTML = '<p>No shop selected. <a href="/static/index.html">Go to the board</a> and pick a shop.</p>'; throw new Error('no shop'); }
+const STAGES = [["lead","Lead"],["documents","Documents"],["qr_issued","QR issued"],["catalog_live","Catalog live"],["first_sale","First digital sale"]];
+
+async function loadShop(){
+  const res = await fetch('/api/shops/' + shopId);
+  if (!res.ok) { document.body.innerHTML = '<p>Shop not found. <a href="/static/index.html">Back to board</a></p>'; return; }
+  const s = await res.json();
+  document.getElementById('shopName').textContent = s.name;
+  document.getElementById('shopMeta').innerHTML = `<p>${s.owner_name} · ${s.phone} · ${s.address} · ${s.sector}<br>Stage: <span class="badge">${s.stage_label}</span> · NTN: ${s.ntn || '—'}</p>`;
+  document.getElementById('raastId').textContent = s.raast_demo_id || 'Not issued yet';
+  document.getElementById('checklist').innerHTML = s.checklist.map(c =>
+    `<li class="${c.done?'done':'todo'}">${c.done?'✅':'⬜'} ${c.label}</li>`).join('');
+  document.getElementById('stageBtns').innerHTML = STAGES.map(([id,label]) =>
+    `<button class="${id===s.stage?'':'secondary'}" ${id===s.stage?'disabled':''} onclick="setStage('${id}')">${label}</button>`).join('');
+  document.getElementById('docList').innerHTML = s.documents.map(d =>
+    `<li>${d.doc_type} — ${d.filename} (${(d.size_bytes/1024).toFixed(1)} KB, ${d.uploaded_at})</li>`).join('') || '<li>No documents yet.</li>';
+  document.getElementById('catBody').innerHTML = s.catalog.map(i =>
+    `<tr><td>${i.name}</td><td>${i.category}</td><td>Rs ${Number(i.price).toLocaleString()}</td></tr>`).join('') || '<tr><td colspan="3">No items yet.</td></tr>';
+  document.getElementById('catalogLink').href = '/c/' + shopId;
+  document.getElementById('qrBox').innerHTML = s.qr_url
+    ? `<img src="${s.qr_url}" alt="Shop catalog QR" style="max-width:200px"><p>QR links to the public catalog page. <strong>DEMO</strong> — not a real Raast payment QR.</p>`
+    : '<p>No QR issued yet.</p>';
+  loadTx();
+}
+async function setStage(stage){
+  const res = await fetch('/api/shops/' + shopId + '/stage', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({stage})});
+  const msg = document.getElementById('stageMsg');
+  if (res.ok) { msg.textContent = '✅ Stage updated to ' + stage; loadShop(); }
+  else { const e = await res.json(); msg.textContent = '❌ ' + (e.detail || 'Stage change rejected.'); }
+}
+document.getElementById('docForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const res = await fetch('/api/shops/' + shopId + '/documents', {method:'POST', body: new FormData(e.target)});
+  const msg = document.getElementById('docMsg');
+  if (res.ok) { const d = await res.json(); msg.textContent = `✅ Uploaded ${d.filename}. ${d.ocr_note}`; e.target.reset(); loadShop(); }
+  else { const err = await res.json(); msg.textContent = '❌ ' + (err.detail || 'Upload failed.'); }
+});
+document.getElementById('qrBtn').addEventListener('click', async () => {
+  const res = await fetch('/api/shops/' + shopId + '/qr', {method:'POST'});
+  if (res.ok) loadShop(); else { const e = await res.json(); alert(e.detail || 'QR issue failed.'); }
+});
+document.getElementById('catForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {name: fd.get('name'), price: Number(fd.get('price')), category: fd.get('category')};
+  const res = await fetch('/api/shops/' + shopId + '/catalog', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  if (res.ok) { e.target.reset(); loadShop(); }
+});
+async function loadTx(){
+  const month = document.getElementById('monthInput').value;
+  const res = await fetch('/api/shops/' + shopId + '/transactions?month=' + month);
+  const txs = await res.json();
+  document.getElementById('txBody').innerHTML = txs.map(t =>
+    `<tr><td>${t.date}</td><td>${t.description}</td><td>Rs ${Number(t.amount).toLocaleString()}</td>
+    <td><select onchange="setCategory(${t.id}, this.value)">${['sales','purchases','utilities','rent','salaries','transport','expenses'].map(c=>`<option ${c===t.category?'selected':''}>${c}</option>`).join('')}</select></td></tr>`).join('')
+    || '<tr><td colspan="4">No transactions this month.</td></tr>';
+}
+async function setCategory(id, category){
+  await fetch('/api/transactions/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({category})});
+  loadTx();
+}
+document.getElementById('txForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {date: fd.get('date'), description: fd.get('description'), amount: Number(fd.get('amount'))};
+  const res = await fetch('/api/shops/' + shopId + '/transactions', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const msg = document.getElementById('txMsg');
+  if (res.ok) { const t = await res.json(); msg.textContent = `✅ Added — auto-categorized as "${t.category}".`; e.target.reset(); loadShop(); }
+  else { const err = await res.json(); msg.textContent = '❌ ' + (err.detail || 'Failed.'); }
+});
+document.getElementById('csvForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const res = await fetch('/api/shops/' + shopId + '/transactions/upload', {method:'POST', body: new FormData(e.target)});
+  const msg = document.getElementById('txMsg');
+  if (res.ok) { const d = await res.json(); msg.textContent = `✅ Imported ${d.imported} transactions${d.skipped_rows.length ? `, skipped rows ${d.skipped_rows.join(', ')}` : ''}.`; e.target.reset(); loadShop(); }
+  else { const err = await res.json(); msg.textContent = '❌ ' + (err.detail || 'CSV upload failed.'); }
+});
+async function loadSummary(){
+  const month = document.getElementById('monthInput').value;
+  const rate = document.getElementById('rateInput').value;
+  const res = await fetch(`/api/shops/${shopId}/summary?month=${month}&tax_rate_pct=${rate}`);
+  const s = await res.json();
+  const rows = Object.entries(s.breakdown).map(([c,b]) =>
+    `<tr><td>${c}</td><td>${b.kind}</td><td>${b.count}</td><td>Rs ${Number(b.total).toLocaleString()}</td></tr>`).join('');
+  document.getElementById('summary').innerHTML = `
+  <h3>Monthly summary — ${s.month} (ESTIMATE)</h3>
+  <table><tr><th>Total sales</th><td>Rs ${s.total_sales.toLocaleString()}</td></tr>
+  <tr><th>Total purchases</th><td>Rs ${s.total_purchases.toLocaleString()}</td></tr>
+  <tr><th>Total expenses</th><td>Rs ${s.total_expenses.toLocaleString()}</td></tr>
+  <tr><th>Net income</th><td>Rs ${s.net_income.toLocaleString()}</td></tr>
+  <tr><th>Tax estimate (${s.tax_rate_pct}% illustrative rate)</th><td>Rs ${s.tax_estimate.toLocaleString()}</td></tr></table>
+  <h4>Category breakdown</h4>
+  <table><thead><tr><th>Category</th><th>Kind</th><th>Count</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
+  <p style="color:#666;font-size:.85rem">${s.disclaimer}</p>`;
+  loadTx();
+}
+function downloadCSV(){
+  const month = document.getElementById('monthInput').value;
+  const rate = document.getElementById('rateInput').value;
+  window.location = `/api/shops/${shopId}/summary.csv?month=${month}&tax_rate_pct=${rate}`;
+}
+loadShop();
+</script>
+</body>
+</html>

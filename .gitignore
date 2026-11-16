@@ -1,0 +1,7 @@
+tayyar.db
+uploads/
+static/qr/
+__pycache__/
+.pytest_cache/
+*.pyc
+.venv/

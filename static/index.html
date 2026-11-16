@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TAYYAR (تیار) — Digital Onboarding &amp; Tax Compliance, Islamabad</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:1rem}
+h1{margin-bottom:.2rem}.sub{color:#555;margin-top:0}
+.card{border:1px solid #ddd;border-radius:10px;padding:1rem;margin:1rem 0}
+label{display:block;margin:.5rem 0 .2rem;font-weight:600}
+input,select,textarea{width:100%;padding:.5rem;border:1px solid #ccc;border-radius:6px;box-sizing:border-box}
+button{background:#0b6e4f;color:#fff;border:0;padding:.6rem 1.1rem;border-radius:6px;cursor:pointer;margin-top:.7rem}
+button.secondary{background:#eee;color:#222}
+.warn{background:#fff3cd;border:1px solid #e6c200;border-radius:8px;padding:.8rem;margin:1rem 0}
+.notice{background:#e8f5e9;border:1px solid #81c784;border-radius:8px;padding:.8rem;margin:1rem 0}
+table{width:100%;border-collapse:collapse}td,th{padding:.5rem;border-bottom:1px solid #eee;text-align:left}
+.badge{display:inline-block;padding:.15rem .6rem;border-radius:1rem;font-size:.8rem;background:#e3f2fd}
+.stage-lead{background:#eceff1}.stage-documents{background:#fff8e1}.stage-qr_issued{background:#e8f5e9}
+.stage-catalog_live{background:#e0f2f1}.stage-first_sale{background:#c8e6c9}
+a{color:#0b6e4f}
+</style>
+</head>
+<body>
+<h1>TAYYAR (تیار)</h1>
+<p class="sub">B2B Digital Onboarding &amp; Tax Compliance Agency — helping Islamabad merchants go cashless.</p>
+
+<div class="warn"><strong>⚠️ Demo app — please read:</strong>
+<ul>
+<li>Upload <strong>demo/sample files only</strong>. Do <strong>not</strong> upload a real CNIC — no real CNIC numbers are stored.</li>
+<li>Raast merchant IDs shown are <strong>DEMO placeholders</strong>. A real Raast merchant QR needs the shop's real bank-issued merchant ID.</li>
+<li>Monthly tax summaries are <strong>estimates</strong> — the merchant's accountant must verify them. This is <strong>not</strong> an FBR filing.</li>
+</ul></div>
+
+<div id="ocrBox" class="notice">Checking OCR availability…</div>
+
+<div class="card">
+<h2>1 · Onboard a merchant</h2>
+<form id="onboardForm">
+<label>Shop name <input name="name" required placeholder="e.g. Bilal General Store"></label>
+<label>Owner name <input name="owner_name" required></label>
+<label>Phone <input name="phone" required placeholder="03xx-xxxxxxx"></label>
+<label>Address <input name="address" required placeholder="Shop address, Islamabad"></label>
+<label>Sector
+<select name="sector"><option>General Store</option><option>Pharmacy</option><option>Mobile Accessories</option>
+<option>Restaurant / Café</option><option>Clothing</option><option>Electronics</option><option>Other</option></select></label>
+<label>NTN (optional — demo only) <input name="ntn" placeholder="Leave blank if none"></label>
+<button type="submit">Register shop →</button>
+</form>
+<p id="onboardMsg"></p>
+</div>
+
+<div class="card">
+<h2>2 · Cashless Ready — pipeline board</h2>
+<p>Stages: Lead → Documents → QR issued → Catalog live → First digital sale. Click a shop to manage it.</p>
+<div id="boardCounts"></div>
+<table><thead><tr><th>Shop</th><th>Sector</th><th>Stage</th><th>Checklist</th></tr></thead>
+<tbody id="boardBody"><tr><td colspan="4">Loading…</td></tr></tbody></table>
+<button class="secondary" onclick="loadBoard()">Refresh board</button>
+</div>
+
+<div class="card">
+<h2>About the deadline</h2>
+<p>Islamabad is set to become Pakistan's first fully cashless city by <strong>31 December 2026</strong>.
+After <strong>30 November 2026</strong> no cash payment will be accepted in any ICT administration / CDA department.
+TAYYAR gets merchants ready before the deadline: documents, Raast QR, digital catalog, and clean monthly tax records.</p>
+<p><a href="https://github.com/zubair0153715/tayyar">GitHub repo</a> · <a href="/static/shop.html">Open a shop workspace →</a></p>
+</div>
+
+<script>
+async function loadBoard(){
+  const res = await fetch('/api/board');
+  const data = await res.json();
+  document.getElementById('boardCounts').innerHTML =
+    data.stages.map(s => `<span class="badge">${s.label}: <b>${data.counts[s.id]}</b></span> `).join('');
+  document.getElementById('boardBody').innerHTML = data.shops.map(sh => {
+    const done = sh.checklist.filter(c=>c.done).length;
+    return `<tr><td><a href="/static/shop.html?id=${sh.id}">${sh.name}</a></td><td>${sh.sector}</td>
+    <td><span class="badge stage-${sh.stage}">${sh.stage_label}</span></td>
+    <td>${done}/${sh.checklist.length} done</td></tr>`;
+  }).join('') || '<tr><td colspan="4">No shops yet — register one above.</td></tr>';
+}
+async function loadStatus(){
+  const res = await fetch('/api/status');
+  const s = await res.json();
+  document.getElementById('ocrBox').innerHTML = s.ocr_available
+    ? '✅ <strong>OCR available:</strong> Tesseract is installed — document text can be read automatically.'
+    : 'ℹ️ <strong>OCR is NOT installed on this machine</strong> (no <code>tesseract</code> binary). Document details must be entered manually — TAYYAR never pretends OCR read text it did not read.';
+}
+document.getElementById('onboardForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd.entries());
+  const res = await fetch('/api/shops', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const msg = document.getElementById('onboardMsg');
+  if (res.ok) {
+    const shop = await res.json();
+    msg.innerHTML = `✅ Shop registered (ID ${shop.id}). <a href="/static/shop.html?id=${shop.id}">Open its workspace →</a>`;
+    e.target.reset(); loadBoard();
+  } else {
+    const err = await res.json();
+    msg.textContent = '❌ ' + (err.detail || 'Failed to register shop.');
+  }
+});
+loadStatus(); loadBoard();
+</script>
+</body>
+</html>
